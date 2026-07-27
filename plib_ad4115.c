@@ -1,9 +1,16 @@
 #include "plib_ad4115.h"
 
+#include "libs/plib_data_struct/plib_data_struct.h"
+
 #define WEN_READ_CMD_MASK       0b01000000
 
-// todo: delete after implementing use of conf struct
-#define CH_EN_MASK              0x8000
+#define RDY_MASK                0b10000000
+
+#define CHANNEL_MASK            0b00001111
+
+#define DATA_STAT_ENABLED_MASK  0b01000000
+
+#define MANUFACTURER_ID         0x38
 
 typedef enum
 {
@@ -80,10 +87,18 @@ static void StartTranmission(SPI_t *spi);
 static void EndTramission(SPI_t *spi);
 static void ReadRegister(SPI_t *spi, uint8_t reg, uint8_t *data, uint8_t len);
 static void WriteRegister(SPI_t *spi, uint8_t reg, uint8_t *data, uint8_t len);
+static void WriteRegister16(SPI_t *spi, uint8_t reg, uint16_t value);
 static void Reset(AD4115_t *obj);
-static void ConfigureChannel(AD4115_t *obj, uint8_t channel, uint8_t setup, uint16_t input);
 static void ReadId(AD4115_t *obj, uint8_t *data);
-static void ConfigureSetup(AD4115_t *obj, uint16_t conf);
+static void ReadStatus(AD4115_t *obj, uint8_t *data);
+static void ReadData(AD4115_t *obj, uint8_t *data);
+static void SetChannelConfRegister(AD4115_t *obj, AD4115_ChannelConf_t *cfg);
+static void SetSetupRegister(AD4115_t *obj, AD4115_SetupRegister_t *cfg);
+static void SetFilterRegister(AD4115_t *obj, AD4115_FilterRegister_t *cfg);
+static void SetModeRegister(AD4115_t *obj, AD4115_ModeRegister_t *cfg);
+static void SetInterfaceRegister(AD4115_t *obj, AD4115_InterfaceRegister_t *cfg);
+static void ConfigureChannels(AD4115_t *obj);
+
 /*==============================================================================
  * Private data
  *============================================================================*/
@@ -97,32 +112,70 @@ uint8_t AD4115_Init(AD4115_t *obj)
     // Reset and configure AD4115
     Reset(obj);
 
-    uint8_t check = AD4115_CheckConnection(obj);
+    // Check connection and stop if not connected
+    if(AD4115_IsConnected(obj) == 0)
+        return 0;
 
     // channel configuration (select input and setup for each adc channel)
-    // todo: modify with modular function (this is just for testing)
-    ConfigureChannel(obj, 0, 0, INPUT_VIN0_VINCOM);
-    ConfigureChannel(obj, 1, 0, INPUT_VIN0_VINCOM);
-    ConfigureChannel(obj, 2, 0, INPUT_VIN0_VINCOM);
-    ConfigureChannel(obj, 3, 0, INPUT_VIN0_VINCOM);
+    ConfigureChannels(obj);
     
     // setup configuration (8 possible adc setups, filter order, output data rate, and more)
-    ConfigureSetup(obj, 0);     //todo: continue developping this function
-    // adc mode and interface mode configuration (adc mode, clock source, enable crc, data and status and more)
+    SetSetupRegister(obj, &obj->setup_reg);
+    SetFilterRegister(obj, &obj->filter_reg);
 
-    return check;
+    // adc mode and interface mode configuration (adc mode, clock source, enable crc, data and status and more)
+    SetModeRegister(obj, &obj->mode_reg);
+
+    // set data stat function mode
+    SetInterfaceRegister(obj, &obj->interface_reg);
+
+    return 1;
 }
 
-uint8_t AD4115_CheckConnection(AD4115_t *obj)
+uint8_t AD4115_IsConnected(AD4115_t *obj)
 {
     uint8_t id[2];
+    // Read id and check manufacturer id
     ReadId(obj, id);
-    if(id[0] == 0x34)
+    // Id ok
+    if(id[0] == MANUFACTURER_ID)
         return 1;
+    // Wrong is
     return 0;
 }
 
- /*==============================================================================
+// 1 when update occurs, 0 nothing done
+uint8_t AD4115_UpdateMeasure(AD4115_t *obj, uint8_t *channel, uint32_t *data)
+{
+    uint8_t buf[4];
+
+    // Read data depending on DATA_STAT mode
+    if(obj->interface_reg.bits.data_stat == AD4115_DATA_STAT_ENABLED)
+    {
+        ReadData(obj, buf);
+    }
+    else
+    {
+        ReadStatus(obj, &buf[3]);
+        ReadData(obj, buf);
+    }
+
+    // Check RDY bit
+    if((buf[3] & RDY_MASK) == 0)
+    {
+        *channel = buf[3] & CHANNEL_MASK;
+        *data = ((uint32_t)buf[0] << 16) |
+                ((uint32_t)buf[1] << 8)  |
+                ((uint32_t)buf[2]);
+        return 1;
+    }
+
+    return 0;
+}
+
+
+
+/*==============================================================================
  * Private functions
  *============================================================================*/
 
@@ -176,6 +229,14 @@ static void WriteRegister(SPI_t *spi, uint8_t reg, uint8_t *data, uint8_t len)
     EndTramission(spi);
 }
 
+static void WriteRegister16(SPI_t *spi, uint8_t reg, uint16_t value)
+{
+    uint8_t tx[2];
+    tx[0] = value >> 8;
+    tx[1] = value;
+    WriteRegister(spi, reg, tx, 2);
+}
+
 static void Reset(AD4115_t *obj)
 {
 
@@ -185,32 +246,53 @@ static void Reset(AD4115_t *obj)
     EndTramission(&obj->spi);
 }
 
-static void ConfigureChannel(AD4115_t *obj, uint8_t channel, uint8_t setup, uint16_t input)
-{
-    uint16_t ch_cfg = CH_EN_MASK | (((uint16_t)(setup & 0x07)) << 12) | (input & 0x03FF);
-
-    uint8_t data[2] =
-    {
-        (uint8_t)(ch_cfg >> 8),
-        (uint8_t)(ch_cfg)
-    };
-
-    WriteRegister(&obj->spi,
-                  (uint8_t)(CHANNEL0_REG + channel),
-                  data,
-                  sizeof(data));
-}
-
 static void ReadId(AD4115_t *obj, uint8_t *data)
 {
     ReadRegister(&obj->spi, ID_REG, data, 2);
 }
 
-static void ConfigureSetup(AD4115_t *obj, uint16_t conf)
+static void ReadStatus(AD4115_t *obj, uint8_t *data)
 {
-    /*
-    WriteRegister(&obj->spi, SETUP_CONFIG0_REG, )
-    if (setup_number > 7) { return; }
-	write_register(Register::SETUP0 + setup_number, setup_bits);
-    */
+    ReadRegister(&obj->spi, STATUS_REG, data, 1);
+}
+
+static void ReadData(AD4115_t *obj, uint8_t *data)
+{
+    // 3 data bytes when data stat disabled, appends status register if enabled
+    uint8_t len;
+    len = obj->interface_reg.bits.data_stat ? 4 : 3;
+    ReadRegister(&obj->spi, DATA_REG, data, len);
+}
+
+static void SetChannelConfRegister(AD4115_t *obj, AD4115_ChannelConf_t *cfg)
+{
+    WriteRegister16(&obj->spi, CHANNEL0_REG + cfg->channel, cfg->conf.value);
+}
+
+static void SetSetupRegister(AD4115_t *obj, AD4115_SetupRegister_t *cfg)
+{
+    WriteRegister16(&obj->spi, SETUP_CONFIG0_REG, cfg->value);
+}
+
+static void SetFilterRegister(AD4115_t *obj, AD4115_FilterRegister_t *cfg)
+{
+    WriteRegister16(&obj->spi, FILTER_CONFIG0_REG, cfg->value);
+}
+
+static void SetModeRegister(AD4115_t *obj, AD4115_ModeRegister_t *cfg)
+{
+    WriteRegister16(&obj->spi, ADC_MODE_REG, cfg->value);
+}
+
+static void SetInterfaceRegister(AD4115_t *obj, AD4115_InterfaceRegister_t *cfg)
+{
+    WriteRegister16(&obj->spi, INTERFACE_MODE_REG, cfg->value);
+}
+
+static void ConfigureChannels(AD4115_t *obj)
+{
+    for(uint8_t i = 0; i < obj->channels_count; i++)
+    {
+        SetChannelConfRegister(obj, &obj->channels_conf[i]);
+    }
 }
