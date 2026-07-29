@@ -361,7 +361,9 @@ typedef struct
 
 uint8_t AD4115_Init(AD4115_t *obj);
 
-uint8_t AD4115_IsConnected(AD4115_t *obj);
+void AD4115_Reset(AD4115_t *obj);
+
+uint8_t AD4115_CheckId(AD4115_t *obj);
 
 uint8_t AD4115_UpdateMeasure(AD4115_t *obj, uint8_t *channel, uint32_t *data);
 

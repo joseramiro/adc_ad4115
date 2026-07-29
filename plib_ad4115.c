@@ -1,6 +1,7 @@
 #include "plib_ad4115.h"
 
 #include "libs/plib_data_struct/plib_data_struct.h"
+#include "libs/common_c_libs/plib_delay.h"
 
 #define WEN_READ_CMD_MASK       0b01000000
 
@@ -10,7 +11,7 @@
 
 #define DATA_STAT_ENABLED_MASK  0b01000000
 
-#define MANUFACTURER_ID         0x38
+#define MANUFACTURER_ID         0x38D0
 
 typedef enum
 {
@@ -112,10 +113,13 @@ uint8_t AD4115_Init(AD4115_t *obj)
     // Reset and configure AD4115
     Reset(obj);
 
+    Wait100ns(2000);
+
     // Check connection and stop if not connected
-    if(AD4115_IsConnected(obj) == 0)
+    if(AD4115_CheckId(obj) == 0)
         return 0;
 
+    /*
     // channel configuration (select input and setup for each adc channel)
     ConfigureChannels(obj);
     
@@ -128,19 +132,25 @@ uint8_t AD4115_Init(AD4115_t *obj)
 
     // set data stat function mode
     SetInterfaceRegister(obj, &obj->interface_reg);
+    */
 
     return 1;
 }
 
-uint8_t AD4115_IsConnected(AD4115_t *obj)
+void AD4115_Reset(AD4115_t *obj)
 {
-    uint8_t id[2];
+    Reset(obj);
+}
+
+uint8_t AD4115_CheckId(AD4115_t *obj)
+{
+    uint8_t raw_id[2];
     // Read id and check manufacturer id
-    ReadId(obj, id);
-    // Id ok
-    if(id[0] == MANUFACTURER_ID)
+    ReadId(obj, raw_id);
+    uint16_t id = ((uint16_t)raw_id[0] << 8) | raw_id[1];
+    if((id & 0xFFF0) == MANUFACTURER_ID)
         return 1;
-    // Wrong is
+    // Wrong id
     return 0;
 }
 
@@ -193,6 +203,8 @@ static void Read(SPI_t *spi, uint8_t* data, const uint16_t size)
 
 static void StartTranmission(SPI_t *spi)
 {
+    __builtin_disable_interrupts();
+
     if(spi->pinEN.Clear != NULL)
         spi->pinEN.Clear();
     if(spi->pinCS.Clear != NULL) 
@@ -205,6 +217,7 @@ static void EndTramission(SPI_t *spi)
         spi->pinCS.Set();
     if(spi->pinEN.Set != NULL)
         spi->pinEN.Set();
+    __builtin_enable_interrupts();
 }
 
 static void ReadRegister(SPI_t *spi, uint8_t reg, uint8_t *data, uint8_t len)
@@ -239,7 +252,6 @@ static void WriteRegister16(SPI_t *spi, uint8_t reg, uint16_t value)
 
 static void Reset(AD4115_t *obj)
 {
-
     StartTranmission(&obj->spi);
     uint8_t buffer[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     Write(&obj->spi, buffer, 8);
