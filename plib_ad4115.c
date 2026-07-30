@@ -5,7 +5,10 @@
 
 #define WEN_READ_CMD_MASK       0b01000000
 
-#define RDY_MASK                0b10000000
+#define STATUS_RDY_MASK         0b10000000
+#define STATUS_ADC_ERROR_MASK   0b01000000
+#define STATUS_CRC_ERROR_MASK   0b00100000
+#define STATUS_REG_ERROR_MASK   0b00010000
 
 #define CHANNEL_MASK            0b00001111
 
@@ -119,21 +122,17 @@ uint8_t AD4115_Init(AD4115_t *obj)
     if(AD4115_CheckId(obj) == 0)
         return 0;
 
-    /*
     // channel configuration (select input and setup for each adc channel)
     ConfigureChannels(obj);
-    
-    // setup configuration (8 possible adc setups, filter order, output data rate, and more)
-    SetSetupRegister(obj, &obj->setup_reg);
-    SetFilterRegister(obj, &obj->filter_reg);
-
     // adc mode and interface mode configuration (adc mode, clock source, enable crc, data and status and more)
     SetModeRegister(obj, &obj->mode_reg);
-
-    // set data stat function mode
+    // set interface mode register (data stat)
     SetInterfaceRegister(obj, &obj->interface_reg);
-    */
-
+    // setup configuration (8 possible adc setups, filter order, output data rate, and more)
+    SetSetupRegister(obj, &obj->setup_reg);
+    // filter register
+    SetFilterRegister(obj, &obj->filter_reg);
+    
     return 1;
 }
 
@@ -157,23 +156,28 @@ uint8_t AD4115_CheckId(AD4115_t *obj)
 // 1 when update occurs, 0 nothing done
 uint8_t AD4115_UpdateMeasure(AD4115_t *obj, uint8_t *channel, uint32_t *data)
 {
-    uint8_t buf[4];
+    uint8_t buf[4], tmp_ch = 0;
 
-    // Read data depending on DATA_STAT mode
+    // Read data and status depending on DATA STAT mode
     if(obj->interface_reg.bits.data_stat == AD4115_DATA_STAT_ENABLED)
     {
         ReadData(obj, buf);
     }
     else
     {
-        ReadStatus(obj, &buf[3]);
         ReadData(obj, buf);
+        ReadStatus(obj, &buf[3]);
     }
-
-    // Check RDY bit
-    if((buf[3] & RDY_MASK) == 0)
+    tmp_ch = buf[3] & CHANNEL_MASK;
+    
+    // Check RDY bit & no error occured
+    if((buf[3] & STATUS_RDY_MASK) == 0 &&
+       (buf[3] & STATUS_ADC_ERROR_MASK) == 0 &&
+       (buf[3] & STATUS_CRC_ERROR_MASK) == 0 &&
+       (buf[3] & STATUS_REG_ERROR_MASK) == 0 &&
+       (tmp_ch <  obj->channels_count))
     {
-        *channel = buf[3] & CHANNEL_MASK;
+        *channel = tmp_ch;
         *data = ((uint32_t)buf[0] << 16) |
                 ((uint32_t)buf[1] << 8)  |
                 ((uint32_t)buf[2]);

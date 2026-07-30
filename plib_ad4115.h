@@ -130,8 +130,8 @@ typedef enum
 
 typedef enum
 {
-    AD4115_INBUF_DIS                = 0b00, /**< Input buffer disabled */
-    AD4115_INBUF_EN                 = 0b11  /**< Input buffer enabled */
+    AD4115_INBUF_DISABLED           = 0b00, /**< Input buffer disabled */
+    AD4115_INBUF_ENABLED            = 0b11  /**< Input buffer enabled */
 } AD4115_InputBuffer_t;
 
 typedef enum
