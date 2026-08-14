@@ -9,7 +9,8 @@
 #define PLIB_AD4115_H
 
 #include <stdint.h>
-#include "libs/common_c_libs/plib_comm_struct.h"
+
+#include "plib_comm_struct.h"
 
 // Enums concerning ADC Mode Regiter
 

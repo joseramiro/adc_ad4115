@@ -1,7 +1,7 @@
 #include "plib_ad4115.h"
 
-#include "libs/plib_data_struct/plib_data_struct.h"
-#include "libs/common_c_libs/plib_delay.h"
+#include "plib_data_struct.h"
+#include "plib_delay.h"
 
 #define WEN_READ_CMD_MASK       0b01000000
 
