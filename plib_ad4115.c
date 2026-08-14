@@ -111,6 +111,7 @@ static void ConfigureChannels(AD4115_t *obj);
  * Public functions
  *============================================================================*/
 
+// 0 no error, else error
 uint8_t AD4115_Init(AD4115_t *obj)
 {
     // Reset and configure AD4115
@@ -120,7 +121,7 @@ uint8_t AD4115_Init(AD4115_t *obj)
 
     // Check connection and stop if not connected
     if(AD4115_CheckId(obj) == 0)
-        return 0;
+        return 1;
 
     // channel configuration (select input and setup for each adc channel)
     ConfigureChannels(obj);
@@ -133,7 +134,7 @@ uint8_t AD4115_Init(AD4115_t *obj)
     // filter register
     SetFilterRegister(obj, &obj->filter_reg);
     
-    return 1;
+    return 0;
 }
 
 void AD4115_Reset(AD4115_t *obj)
@@ -141,6 +142,7 @@ void AD4115_Reset(AD4115_t *obj)
     Reset(obj);
 }
 
+// 1  same id, 0 wrong
 uint8_t AD4115_CheckId(AD4115_t *obj)
 {
     uint8_t raw_id[2];
@@ -153,7 +155,7 @@ uint8_t AD4115_CheckId(AD4115_t *obj)
     return 0;
 }
 
-// 1 when update occurs, 0 nothing done
+// 0 ok, else error
 uint8_t AD4115_UpdateMeasure(AD4115_t *obj, uint8_t *channel, uint32_t *data)
 {
     uint8_t buf[4], tmp_ch = 0;
@@ -181,10 +183,10 @@ uint8_t AD4115_UpdateMeasure(AD4115_t *obj, uint8_t *channel, uint32_t *data)
         *data = ((uint32_t)buf[0] << 16) |
                 ((uint32_t)buf[1] << 8)  |
                 ((uint32_t)buf[2]);
-        return 1;
+        return 0;
     }
 
-    return 0;
+    return 1;
 }
 
 
